@@ -59,7 +59,7 @@ EOF
 }
 
 # ---------- 2. keyremap ----------
-say "2/3  keyremap (Alt+Space -> Cmd+Space, Ctrl+A/C/V -> Cmd+A/C/V)"
+say "2/3  keyremap (Alt+Space, Alt+Tab, Alt+C, Ctrl+A/C/V)"
 swiftc -O keyremap/main.swift -o "$BASE/keyremap"
 codesign --force -s - "$BASE/keyremap"
 write_agent keyremap "$BASE/keyremap" "  <key>KeepAlive</key><true/>"

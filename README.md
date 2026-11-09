@@ -12,13 +12,14 @@ Det här repot är min lösning. Allt som går att installera på Mac-sidan inst
 |---|---|---|
 | **Deskflow** | PC:ns mus och tangentbord styr Macen. Kopierad text följer med. | Färdigt open source-program. PC = server, Mac = klient |
 | **LocalSend** | Skicka filer mellan datorerna, som AirDrop. | Färdigt open source-program |
-| **keyremap** | Windows-kortkommandon fungerar på Macen: vänster Alt+Space öppnar Spotlight, Ctrl+A/C/V markerar allt/kopierar/klistrar in. | Eget litet Swift-program |
+| **keyremap** | Windows-kortkommandon fungerar på Macen: vänster Alt+Space öppnar Spotlight, Alt+Tab byter program, Alt+C tar en skärmdump av ett område och Ctrl+A/C/V markerar allt/kopierar/klistrar in. | Eget litet Swift-program |
 | **home-autostart** | Deskflow och LocalSend startar av sig själva när Macen kommer hem och stängs på andra nätverk. | Eget bash-skript + macOS LaunchAgent |
 
 ## Beslut och varför
 
 - **Deskflow i stället för fjärrskrivbord.** Båda skärmarna står framför mig, så jag behöver inte se Macens skärm på PC:n. Jag behöver bara styra den. Deskflow ger lägre fördröjning och skarp bild, eftersom inget videoflöde skickas.
-- **Alt+Space bara från PC-tangentbordet.** keyremap kontrollerar vilket program tangenttrycket kommer från. Bara tryck som kommer via Deskflow görs om, så MacBookens eget tangentbord fungerar som vanligt.
+- **Alt-kortkommandona bara från PC-tangentbordet.** keyremap kontrollerar vilket program tangenttrycket kommer från. Bara tryck som kommer via Deskflow görs om, så MacBookens eget tangentbord fungerar som vanligt.
+- **Alt+Tab håller växlaren öppen.** Macens programväxlare är öppen så länge Cmd hålls nere. keyremap trycker därför ner Cmd vid första Tab och släpper den när Alt släpps.
 - **Ctrl+C lämnas ifred i terminalen.** Där betyder Ctrl+C "avbryt", så terminalprogram är undantagna.
 - **Hemnätverket känns igen på routern, inte på wifi-namnet.** På nyare macOS krävs platsbehörighet för att läsa wifi-namnet. Routerns MAC-adress går att läsa utan behörighet och är dessutom unik, medan två nätverk kan heta samma sak.
 - **Reagerar bara när nätverket byts.** Om jag stänger LocalSend hemma startar den inte om fem minuter senare. Om nätverket försvinner helt en kort stund händer ingenting.

@@ -3,6 +3,8 @@
 //
 //  • Left Alt + Space  ->  Cmd + Space (Spotlight / launcher), but ONLY for key presses
 //    that come from Deskflow. The Mac's built-in keyboard is left untouched.
+//  • Left Alt + C      ->  Cmd + Shift + 4 (drag to take a screenshot of an area), Deskflow only.
+//  • Left Alt + Tab    ->  Cmd + Tab (app switcher; Alt + Shift + Tab goes backwards), Deskflow only.
 //  • Ctrl + A / C / V  ->  Cmd + A / C / V (select all, copy, paste) from any keyboard,
 //    except in terminal apps, where Ctrl keys mean something else.
 //
@@ -59,9 +61,10 @@ func remapCtrl(_ event: CGEvent, _ type: CGEventType, _ key: String) {
 }
 
 // Is this process Deskflow? Cached per pid, since every key press asks.
+// Our own posted events never count.
 var pidCache: [pid_t: Bool] = [:]
 func isDeskflow(_ pid: pid_t) -> Bool {
-    if pid <= 0 { return false }
+    if pid <= 0 || pid == getpid() { return false }
     if let hit = pidCache[pid] { return hit }
     var buf = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
     let n = proc_pidpath(pid, &buf, UInt32(buf.count))
@@ -69,6 +72,80 @@ func isDeskflow(_ pid: pid_t) -> Bool {
     let ok = path.lowercased().contains("deskflow")
     pidCache[pid] = ok
     return ok
+}
+
+func fromDeskflow(_ event: CGEvent) -> Bool {
+    isDeskflow(pid_t(event.getIntegerValueField(.eventSourceUnixProcessID)))
+}
+
+let cKey: Int64 = 8
+let fourKey: Int64 = 21
+let tabKey: Int64 = 48
+let cmdKey: CGKeyCode = 55
+let leftShift: UInt64 = 0x02
+
+// Left Alt held (not AltGr), without Cmd/Ctrl
+func isLeftAltOnly(_ flags: CGEventFlags) -> Bool {
+    let raw = flags.rawValue
+    guard flags.contains(.maskAlternate),
+          !flags.contains(.maskCommand),
+          !flags.contains(.maskControl) else { return false }
+    return !(raw & rightAlt != 0 && raw & leftAlt == 0)
+}
+
+// Left Alt+C from Deskflow -> Cmd+Shift+4 (area screenshot)
+func remapAltC(_ event: CGEvent, _ type: CGEventType) -> Bool {
+    let flags = event.flags
+    guard fromDeskflow(event), isLeftAltOnly(flags), !flags.contains(.maskShift) else { return false }
+    var newRaw = flags.rawValue & ~(CGEventFlags.maskAlternate.rawValue | leftAlt | rightAlt)
+    newRaw |= CGEventFlags.maskCommand.rawValue | leftCmd | CGEventFlags.maskShift.rawValue | leftShift
+    event.flags = CGEventFlags(rawValue: newRaw)
+    event.setIntegerValueField(.keyboardEventKeycode, value: fourKey)
+    if debug { log("alt+c \(type == .keyDown ? "down" : "up") -> Cmd+Shift+4") }
+    return true
+}
+
+// Left Alt+Tab from Deskflow -> Cmd+Tab.
+// The app switcher stays open while Cmd is held, so we post our own Cmd press on the
+// first Tab and release it when Alt is released.
+var switcherActive = false
+let hidSource = CGEventSource(stateID: .hidSystemState)
+
+func postCmd(down: Bool) {
+    guard let e = CGEvent(keyboardEventSource: hidSource, virtualKey: cmdKey, keyDown: down) else { return }
+    e.type = .flagsChanged
+    e.flags = down ? CGEventFlags(rawValue: CGEventFlags.maskCommand.rawValue | leftCmd) : []
+    e.post(tap: .cghidEventTap)
+}
+
+func postTab(down: Bool, shift: Bool) {
+    guard let e = CGEvent(keyboardEventSource: hidSource, virtualKey: CGKeyCode(tabKey), keyDown: down) else { return }
+    var raw = CGEventFlags.maskCommand.rawValue | leftCmd
+    if shift { raw |= CGEventFlags.maskShift.rawValue | leftShift }
+    e.flags = CGEventFlags(rawValue: raw)
+    e.post(tap: .cghidEventTap)
+}
+
+// Returns true when the Tab event was taken over (the original is then dropped)
+func handleAltTab(_ event: CGEvent, _ type: CGEventType) -> Bool {
+    let flags = event.flags
+    guard fromDeskflow(event), isLeftAltOnly(flags) else { return false }
+    let shift = flags.contains(.maskShift)
+    if type == .keyDown && !switcherActive {
+        switcherActive = true
+        postCmd(down: true)
+    }
+    postTab(down: type == .keyDown, shift: shift)
+    if debug { log("alt+\(shift ? "shift+" : "")tab \(type == .keyDown ? "down" : "up") -> Cmd+Tab") }
+    return true
+}
+
+// When Alt is released: release our Cmd so the switcher opens the chosen app
+func handleFlagsChanged(_ event: CGEvent) {
+    guard switcherActive, fromDeskflow(event), !event.flags.contains(.maskAlternate) else { return }
+    switcherActive = false
+    postCmd(down: false)
+    if debug { log("alt released -> Cmd released") }
 }
 
 var tap: CFMachPort?
@@ -80,10 +157,20 @@ let callback: CGEventTapCallBack = { _, type, event, _ in
         log("tap was disabled, re-enabled it")
         return Unmanaged.passUnretained(event)
     }
+    if type == .flagsChanged {
+        handleFlagsChanged(event)
+        return Unmanaged.passUnretained(event)
+    }
     guard type == .keyDown || type == .keyUp else {
         return Unmanaged.passUnretained(event)
     }
     let keycode = event.getIntegerValueField(.keyboardEventKeycode)
+    if keycode == tabKey && handleAltTab(event, type) {
+        return nil
+    }
+    if keycode == cKey && remapAltC(event, type) {
+        return Unmanaged.passUnretained(event)
+    }
     if let key = ctrlKeys[keycode] {
         remapCtrl(event, type, key)
         return Unmanaged.passUnretained(event)
@@ -129,6 +216,7 @@ if !AXIsProcessTrustedWithOptions(opts) {
 }
 
 let mask: CGEventMask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue)
+                      | (1 << CGEventType.flagsChanged.rawValue)
 guard let t = CGEvent.tapCreate(tap: .cgSessionEventTap,
                                 place: .headInsertEventTap,
                                 options: .defaultTap,
